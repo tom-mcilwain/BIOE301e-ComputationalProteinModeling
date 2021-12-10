@@ -1,0 +1,86 @@
+
+<ROSETTASCRIPTS>
+	<SCOREFXNS>
+		<ScoreFunction name="r15" weights="ref2015" />	
+	</SCOREFXNS>
+	<RESIDUE_SELECTORS>
+		### select chain A
+		<Chain name="chainA" chains="A"/>
+		### select chain B
+		<Chain name="chainB" chains="B"/>
+		### select interface of chainB close within 8.0 A of chainA
+		<Neighborhood name="interface_chA" selector="chainB" distance="8.0"/>
+		### select interface of chainA close within 8.0 A of chainB
+		<Neighborhood name="interface_chB" selector="chainA" distance="8.0"/>
+		### select intersection of chain A and Chain B interface
+		<And name="AB_interface" selectors="interface_chA,interface_chB" />
+		### select everything but the designable interface residues
+		<Not name="Not_interface" selector="AB_interface" />	
+	</RESIDUE_SELECTORS>
+	<PACKER_PALETTES>
+	</PACKER_PALETTES>
+	<TASKOPERATIONS>
+		#This would take rotamer selection options from the command line, such as -ex1 -ex2
+		<InitializeFromCommandline name="init"/>
+		#Include the side chain rotamer in the crystal structure
+		<IncludeCurrent name="current"/>
+		#Restrict the range of Chi2 for aromatics, otherwise bad rotamers might get used.
+		<LimitAromaChi2 name="limitchi2" chi2max="110" chi2min="70" include_trp="True" />
+		#Restrict interface residues to repacking during Docking
+		<OperateOnResidueSubset name="restrict_interface" selector="AB_interface">
+			<RestrictToRepackingRLT/>
+		</OperateOnResidueSubset>
+		#Prevent repacking on B interface residues during FastDesign's packing step and during Docking
+		<OperateOnResidueSubset name="prevent_interfaceB" selector="interface_chB">
+			<PreventRepackingRLT/>
+		</OperateOnResidueSubset>
+		#Prevent repacking on non-interface residues during FastDesign's packing step and during Docking
+		<OperateOnResidueSubset name="prevent_non_interface" selector="Not_interface">
+			<PreventRepackingRLT/>
+		</OperateOnResidueSubset>
+		#Restrict chain B interface residues to repacking during FastDesign's packing step and during Docking
+		<OperateOnResidueSubset name="restrict_interfaceB" selector="interface_chB">
+			<RestrictToRepackingRLT/>
+		</OperateOnResidueSubset>
+	</TASKOPERATIONS>
+	<MOVE_MAP_FACTORIES>
+	</MOVE_MAP_FACTORIES>
+	<SIMPLE_METRICS>
+	</SIMPLE_METRICS>
+	<FILTERS>
+		#apply this filter to all residues, since buried residues with unsatisfied h-bonds will increase the energy
+		<BuriedUnsatHbonds name="buns_filter" report_bb_heavy_atom_unsats="true" scorefxn="r15" ignore_surface_res="true" print_out_info_to_pdb="true" confidence="0" />
+		#apply this filter to the interfaces by specifying residues selectors
+		<ShapeComplementarity name="sc_filter" residue_selector1="interface_chA" residue_selector2="interface_chB" confidence="0" />
+		#apply filter to compute binding energy between the chains
+		<Ddg name="ddg_filter" chain_num="2" scorefxn="r15" confidence="0" />
+
+	</FILTERS>
+	<MOVERS>
+		#chain A interface redesigns, chain A non-interface and entire chain B repacks
+		<FastDesign name="redesign" scorefxn="r15" task_operations="init,current,limitchi2,prevent_non_interface,restrict_interfaceB" >
+			#apply constraints for the minimization step of this mover
+			<MoveMap name="constrain_mm" >
+				#Allow redesign of chain A
+				<ResidueSelector selector="chainA" chi="true" bb="true"/>
+				#Allow only repacking of chain B
+				<ResidueSelector selector="chainB" chi="true" bb="false"/>
+				#Allow only repacking of non-interface residues 
+				#<ResidueSelector selector="Not_interface" chi="true" bb="false"/>
+				<Jump number="1" setting="true"/>
+			</MoveMap>
+		</FastDesign>
+		#restrict chain B interface to repacking in the docking step; chain A interface allowed to redesign; non-interface cannot repack
+		<DockingProtocol name="docking" docking_local_refine="True" ignore_default_docking_task="true" task_operations="prevent_non_interface,restrict_interfaceB,init,current,limitchi2" partners="chainA_chainB"/>
+		
+	</MOVERS>
+	<PROTOCOLS>
+		
+		<Add mover="redesign"/>
+		<Add mover="docking"/>
+		<Add filter="sc_filter"/>
+		<Add filter="buns_filter"/>
+		<Add filter="ddg_filter"/>
+	</PROTOCOLS>
+	<OUTPUT />
+</ROSETTASCRIPTS>
